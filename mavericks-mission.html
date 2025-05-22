@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maverick's Mission</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #1a1a2e; /* Dark space blue */
+            color: #e0e0e0; /* Light grey for text */
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars from canvas */
+        }
+        #gameCanvas {
+            background-color: #0f0f1a; /* Even darker blue for canvas */
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5); /* Cyan glow */
+            cursor: crosshair;
+            display: block; /* Remove extra space below canvas */
+            position: relative; /* For positioning level up message */
+        }
+        .game-info-container { /* Container for score, health, and level */
+            display: flex;
+            justify-content: space-between;
+            width: 90%;
+            max-width: 600px; /* Match typical canvas width */
+            margin-bottom: 1rem;
+            font-size: 1.25rem;
+            padding: 0.5rem 1rem;
+            background-color: rgba(46, 46, 66, 0.7); /* Semi-transparent dark purple */
+            border-radius: 8px;
+        }
+        .game-title {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #00ffff; /* Bright Cyan */
+            text-shadow: 0 0 10px #00ffff;
+            margin-bottom: 1rem;
+        }
+        button {
+            background-color: #00ffff; /* Cyan */
+            color: #1a1a2e; /* Dark space blue */
+            border: none;
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
+        }
+        button:hover {
+            background-color: #00cccc; /* Darker Cyan */
+        }
+        button:active {
+            transform: scale(0.95);
+        }
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #1a1a2e;
+            margin: auto;
+            padding: 30px;
+            border: 1px solid #00ffff;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+        }
+        .modal-content h2 {
+            color: #00ffff; /* Cyan for game over */
+            margin-top: 0;
+        }
+        .modal-content h2.win-title { /* Specific style for win title */
+            color: #39ff14; /* Neon Green for win */
+            text-shadow: 0 0 10px #39ff14;
+        }
+        .modal-content p {
+            margin-bottom: 20px;
+        }
+        #levelUpMessage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #ffd700; /* Gold */
+            text-shadow: 0 0 10px #ffd700, 0 0 20px #ff8c00;
+            padding: 15px 30px;
+            background-color: rgba(0,0,0,0.7);
+            border-radius: 10px;
+            z-index: 50; /* Above canvas, below modal */
+            display: none; /* Hidden by default */
+            animation: fadeInOut 2s ease-in-out;
+        }
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+            25%, 75% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <h1 class="game-title">Maverick's Mission</h1>
+    <div class="game-info-container"> <div id="scoreDisplay">Score: 0</div>
+        <div id="levelDisplay">Level: 1</div> <div id="healthDisplay">Health: 100</div>
+    </div>
+
+    <div style="position: relative;"> <canvas id="gameCanvas"></canvas>
+        <div id="levelUpMessage">Level Up!</div> </div>
+
+
+    <div id="gameOverModal" class="modal">
+        <div class="modal-content">
+            <h2 id="gameOverTitleElement">Game Over!</h2> <p id="finalScore">Your Score: 0</p>
+            <p id="additionalMessage"></p>
+            <button id="restartButton">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const healthDisplay = document.getElementById('healthDisplay');
+        const levelDisplay = document.getElementById('levelDisplay'); // ADDED
+        const levelUpMessageElement = document.getElementById('levelUpMessage'); // ADDED
+
+        const gameOverModal = document.getElementById('gameOverModal');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartButton = document.getElementById('restartButton');
+        const gameOverTitleElement = document.getElementById('gameOverTitleElement');
+        const additionalMessageElement = document.getElementById('additionalMessage');
+
+
+        let canvasWidth = 600;
+        let canvasHeight = 400;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        // Game state
+        let score = 0;
+        const winScore = 3000;
+        let playerHealth = 100;
+        const healthPerHit = 25;
+        let gameOver = false;
+        let gameRunning = true;
+
+        // ADDED: Leveling system variables
+        let currentLevel = 1;
+        const levelThresholds = [0, 750, 1500, 2250]; // Score needed to reach level 1, 2, 3, 4
+        const baseSpawnIntervalsByLevel = [1800, 1600, 1400, 1200]; // Base spawn interval for each level
+        let currentBaseSpawnInterval = baseSpawnIntervalsByLevel[0];
+        let enemySpawnIntervalRamp = 0.985; // How much spawn interval decreases within a level
+
+        // Player (Fighter Jet)
+        const player = {
+            x: canvasWidth / 2,
+            y: canvasHeight - 40,
+            width: 30,
+            height: 40,
+            color: '#00ffff',
+            wingSpan: 50,
+            noseLength: 15,
+            jetFlameColor1: 'orange',
+            jetFlameColor2: 'yellow'
+        };
+
+        // Projectiles
+        const projectiles = [];
+        const projectileSpeed = 8;
+        const projectileRadius = 3;
+
+        // Enemies (Red Fighter Jets)
+        const enemies = [];
+        let actualEnemySpawnInterval = baseSpawnIntervalsByLevel[0]; // This will ramp down
+        let lastEnemySpawnTime = 0;
+        const enemyBaseSpeed = 1.2; // Speed remains constant across levels as requested
+        const enemyRadius = 18;
+        const enemyJetStats = {
+            width: 25,
+            height: 35,
+            color: '#ff3030', // Red
+            wingSpan: 40,
+            noseLength: 12,
+        };
+
+
+        // Stars
+        const stars = [];
+        const numStars = 100;
+
+        // Mouse position
+        let mouseX = canvasWidth / 2;
+        let mouseY = 0;
+
+        // --- Star Initialization ---
+        function initStars() {
+            stars.length = 0;
+            for (let i = 0; i < numStars; i++) {
+                stars.push({
+                    x: Math.random() * canvasWidth,
+                    y: Math.random() * canvasHeight,
+                    radius: Math.random() * 1.5 + 0.5,
+                    alpha: Math.random() * 0.5 + 0.5
+                });
+            }
+        }
+
+
+        // --- Game Initialization ---
+        function initGame() {
+            score = 0;
+            playerHealth = 100;
+            gameOver = false;
+            gameRunning = true;
+            projectiles.length = 0;
+            enemies.length = 0;
+            lastEnemySpawnTime = 0;
+            
+            // ADDED: Reset level variables
+            currentLevel = 1;
+            currentBaseSpawnInterval = baseSpawnIntervalsByLevel[0];
+            actualEnemySpawnInterval = currentBaseSpawnInterval; // Reset ramped interval
+
+            updateDisplays();
+            gameOverModal.style.display = 'none';
+            additionalMessageElement.textContent = '';
+            gameOverTitleElement.classList.remove('win-title');
+            levelUpMessageElement.style.display = 'none'; // Hide level up message
+            initStars();
+            gameLoop(0);
+        }
+
+        // --- Event Listeners ---
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            const halfJetWidth = player.wingSpan / 2;
+            player.x = Math.max(halfJetWidth, Math.min(canvasWidth - halfJetWidth, mouseX));
+            mouseY = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('click', () => {
+            if (!gameRunning || gameOver) return;
+            shootProjectile();
+        });
+
+        restartButton.addEventListener('click', () => {
+            initGame();
+        });
+
+        // --- Game Logic ---
+        function shootProjectile() {
+            projectiles.push({
+                x: player.x,
+                y: player.y - player.noseLength - projectileRadius,
+                radius: projectileRadius,
+                color: '#ffffff',
+                dx: 0,
+                dy: -projectileSpeed
+            });
+        }
+        
+        // ADDED: Function to check and handle level ups
+        function checkLevelUp() {
+            let newLevel = currentLevel;
+            // Find the highest level threshold met
+            for (let i = levelThresholds.length - 1; i >= 0; i--) {
+                if (score >= levelThresholds[i]) {
+                    newLevel = i + 1; // Levels are 1-based
+                    break;
+                }
+            }
+
+            if (newLevel > currentLevel && newLevel <= baseSpawnIntervalsByLevel.length) {
+                currentLevel = newLevel;
+                currentBaseSpawnInterval = baseSpawnIntervalsByLevel[currentLevel - 1];
+                actualEnemySpawnInterval = currentBaseSpawnInterval; // Reset ramp for new level
+                updateDisplays(); // Update level display
+                
+                // Show Level Up message
+                levelUpMessageElement.textContent = `Level ${currentLevel}!`;
+                levelUpMessageElement.style.display = 'block';
+                // Force reflow for animation restart
+                levelUpMessageElement.style.animation = 'none';
+                levelUpMessageElement.offsetHeight; /* trigger reflow */
+                levelUpMessageElement.style.animation = ''; 
+                
+                setTimeout(() => {
+                    levelUpMessageElement.style.display = 'none';
+                }, 2000); // Duration of animation
+            }
+        }
+
+
+        function spawnEnemy(currentTime) {
+            if (gameOver) return;
+            if (currentTime - lastEnemySpawnTime > actualEnemySpawnInterval) { // Use actualEnemySpawnInterval
+                const x = Math.random() * (canvasWidth - enemyJetStats.wingSpan) + enemyJetStats.wingSpan / 2;
+                const y = 0 - enemyJetStats.height;
+
+                let targetX = player.x + (Math.random() - 0.5) * (canvasWidth / 2.5);
+                let targetY = canvasHeight;
+
+                const angleToTarget = Math.atan2(targetY - y, targetX - x);
+
+                enemies.push({
+                    x: x,
+                    y: y,
+                    radius: enemyRadius,
+                    width: enemyJetStats.width,
+                    height: enemyJetStats.height,
+                    color: enemyJetStats.color,
+                    wingSpan: enemyJetStats.wingSpan,
+                    noseLength: enemyJetStats.noseLength,
+                    dx: Math.cos(angleToTarget) * (enemyBaseSpeed + Math.random() * 0.6), // Speed remains constant
+                    dy: Math.sin(angleToTarget) * (enemyBaseSpeed + Math.random() * 0.6), // Speed remains constant
+                    nextPathChangeTime: currentTime + (Math.random() * 800 + 400)
+                });
+                lastEnemySpawnTime = currentTime;
+
+                // Ramp down spawn interval within the current level's base
+                if (actualEnemySpawnInterval > currentBaseSpawnInterval * 0.5) { // Don't let it get too fast within a level
+                    actualEnemySpawnInterval *= enemySpawnIntervalRamp;
+                }
+            }
+        }
+
+        function updateProjectiles() {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
+                p.x += p.dx;
+                p.y += p.dy;
+
+                if (p.x - p.radius < 0 || p.x + p.radius > canvasWidth ||
+                    p.y + p.radius < 0 || p.y - p.radius > canvasHeight) {
+                    projectiles.splice(i, 1);
+                }
+            }
+        }
+
+        function updateEnemies(currentTime) {
+            if (gameOver) return;
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.x += e.dx;
+                e.y += e.dy;
+
+                if (currentTime > e.nextPathChangeTime) {
+                    const randomAngleOffset = (Math.random() - 0.5) * 0.7;
+                    const currentAngle = Math.atan2(e.dy, e.dx);
+                    const newAngle = currentAngle + randomAngleOffset;
+                    const speedMagnitude = Math.sqrt(e.dx * e.dx + e.dy * e.dy);
+
+                    e.dx = Math.cos(newAngle) * speedMagnitude;
+                    e.dy = Math.sin(newAngle) * speedMagnitude;
+
+                    e.nextPathChangeTime = currentTime + (Math.random() * 700 + 300);
+                }
+
+                if (e.x - e.wingSpan / 2 < 0 || e.x + e.wingSpan / 2 > canvasWidth) {
+                    e.dx *= -1;
+                    if (e.x - e.wingSpan / 2 < 0) e.x = e.wingSpan / 2;
+                    if (e.x + e.wingSpan / 2 > canvasWidth) e.x = canvasWidth - e.wingSpan / 2;
+                }
+
+                if (e.y - e.height / 2 > canvasHeight) {
+                    enemies.splice(i, 1);
+                    playerHealth -= healthPerHit;
+                    updateDisplays();
+                    if (playerHealth <= 0 && !gameOver) {
+                        playerHealth = 0;
+                        updateDisplays();
+                        endGame("Maverick is down! Mission failed.", "Try again, pilot!");
+                    }
+                }
+            }
+        }
+
+        function checkCollisions() {
+            if (gameOver) return;
+
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                if (!projectiles[i]) continue;
+                const p = projectiles[i];
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    if (!enemies[j]) continue;
+                    const e = enemies[j];
+                    const dist = Math.hypot(p.x - e.x, p.y - e.y);
+                    if (dist - e.radius - p.radius < 1) {
+                        enemies.splice(j, 1);
+                        projectiles.splice(i, 1);
+                        score += 15;
+                        updateDisplays();
+                        checkLevelUp(); // ADDED: Check for level up after score change
+                        createExplosion(e.x, e.y, e.color);
+
+                        if (score >= winScore && !gameOver) {
+                            endGame("Mission Accomplished!", "Maverick lands on Earth. You saved the day!", true);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        const particles = [];
+        function createExplosion(x, y, color) {
+            const particleCount = 15;
+            for (let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    radius: Math.random() * 2 + 1,
+                    color: color,
+                    dx: (Math.random() - 0.5) * (Math.random() * 6),
+                    dy: (Math.random() - 0.5) * (Math.random() * 6),
+                    alpha: 1,
+                    life: 30
+                });
+            }
+        }
+
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const par = particles[i];
+                par.x += par.dx;
+                par.y += par.dy;
+                par.alpha -= 1 / par.life;
+                par.life--;
+                if (par.alpha <= 0 || par.life <=0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles() {
+            particles.forEach(par => {
+                ctx.save();
+                ctx.globalAlpha = par.alpha;
+                ctx.beginPath();
+                ctx.arc(par.x, par.y, par.radius, 0, Math.PI * 2);
+                ctx.fillStyle = par.color;
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
+
+        function updateDisplays() {
+            scoreDisplay.textContent = `Score: ${score}`;
+            healthDisplay.textContent = `Health: ${playerHealth}`;
+            levelDisplay.textContent = `Level: ${currentLevel}`; // ADDED: Update level display
+        }
+
+        function endGame(title, message, isWin = false) {
+            if (gameOver) return;
+
+            gameOver = true;
+            gameRunning = false;
+            
+            gameOverTitleElement.textContent = title;
+            finalScoreDisplay.textContent = `Final Score: ${score}`;
+            additionalMessageElement.textContent = message;
+
+            if (isWin) {
+                gameOverTitleElement.classList.add('win-title');
+                enemies.length = 0;
+                projectiles.length = 0;
+            } else {
+                gameOverTitleElement.classList.remove('win-title');
+            }
+            
+            gameOverModal.style.display = 'flex';
+        }
+
+        // --- Drawing ---
+        function drawStars() {
+            ctx.save();
+            stars.forEach(star => {
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
+                ctx.fill();
+            });
+            ctx.restore();
+        }
+
+        function drawPlayer() {
+            if (gameOver && score >= winScore) {
+                return;
+            }
+            const p = player;
+            ctx.fillStyle = p.color;
+
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y - p.noseLength);
+            ctx.lineTo(p.x - p.width / 2, p.y + p.height - p.noseLength - 5);
+            ctx.lineTo(p.x + p.width / 2, p.y + p.height - p.noseLength - 5);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x - p.wingSpan / 2, p.y + p.height / 2);
+            ctx.lineTo(p.x - p.width / 3, p.y + p.height / 2.5);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x + p.wingSpan / 2, p.y + p.height / 2);
+            ctx.lineTo(p.x + p.width / 3, p.y + p.height / 2.5);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y + p.height - p.noseLength - 10);
+            ctx.lineTo(p.x - p.width / 4, p.y + p.height - p.noseLength + 5);
+            ctx.lineTo(p.x + p.width / 4, p.y + p.height - p.noseLength + 5);
+            ctx.closePath();
+            ctx.fill();
+
+            if (gameRunning && !gameOver) {
+                const flameSize = Math.random() * 10 + 10;
+                const flameOffsetX = (Math.random() - 0.5) * 5;
+                ctx.fillStyle = Math.random() < 0.5 ? p.jetFlameColor1 : p.jetFlameColor2;
+                ctx.beginPath();
+                ctx.moveTo(p.x - p.width / 3 + flameOffsetX, p.y + p.height - p.noseLength - 3);
+                ctx.lineTo(p.x + p.width / 3 + flameOffsetX, p.y + p.height - p.noseLength - 3);
+                ctx.lineTo(p.x + flameOffsetX, p.y + p.height - p.noseLength + flameSize);
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+
+        function drawProjectiles() {
+            projectiles.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+            });
+        }
+
+        function drawEnemies() {
+             if (gameOver && score >= winScore) return;
+
+            enemies.forEach(e => {
+                ctx.save();
+                ctx.translate(e.x, e.y);
+                ctx.rotate(Math.PI);
+
+                ctx.fillStyle = e.color;
+
+                ctx.beginPath();
+                ctx.moveTo(0, -e.noseLength);
+                ctx.lineTo(-e.width / 2, e.height - e.noseLength - 5);
+                ctx.lineTo(e.width / 2, e.height - e.noseLength - 5);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(-e.wingSpan / 2, e.height / 2);
+                ctx.lineTo(-e.width / 3, e.height / 2.5);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(e.wingSpan / 2, e.height / 2);
+                ctx.lineTo(e.width / 3, e.height / 2.5);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(0, e.height - e.noseLength - 10);
+                ctx.lineTo(-e.width / 4, e.height - e.noseLength + 5);
+                ctx.lineTo(e.width / 4, e.height - e.noseLength + 5);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.restore();
+            });
+        }
+
+        let lastTime = 0;
+        function gameLoop(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+
+            ctx.fillStyle = '#0f0f1a';
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            drawStars();
+
+            if (gameRunning && !gameOver) {
+                spawnEnemy(currentTime);
+                updateProjectiles();
+                updateEnemies(currentTime);
+                checkCollisions();
+            } else {
+                 updateProjectiles();
+            }
+            
+            updateParticles();
+
+            drawPlayer();
+            drawProjectiles();
+            drawEnemies();
+            drawParticles();
+
+            if (!gameOver) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function resizeCanvas() {
+            const preferredWidth = 600;
+            const preferredHeight = 400;
+            const maxWidth = window.innerWidth * 0.9;
+            const maxHeight = window.innerHeight * 0.7;
+
+            let newWidth = Math.min(preferredWidth, maxWidth);
+            let newHeight = (newWidth / preferredWidth) * preferredHeight;
+
+            if (newHeight > maxHeight) {
+                newHeight = maxHeight;
+                newWidth = (newHeight / preferredHeight) * preferredWidth;
+            }
+
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+
+            canvasWidth = newWidth;
+            canvasHeight = newHeight;
+
+            player.y = canvasHeight - 40;
+
+            initStars();
+
+            if (gameOver) {
+                 ctx.fillStyle = '#0f0f1a';
+                 ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+                 drawStars();
+                 drawPlayer();
+                 drawEnemies();
+                 drawParticles();
+            } else if (!gameRunning) {
+                 ctx.fillStyle = '#0f0f1a';
+                 ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+                 drawStars();
+                 drawPlayer();
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        resizeCanvas();
+        initGame();
+    </script>
+</body>
+</html>
